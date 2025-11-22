@@ -34,6 +34,7 @@ def read_plate(yolo_license_plate, im):
     ys_np = np.array([[c[1]] for c in center_list])
     kmeans = KMeans(n_clusters=2, n_init=10).fit(ys_np)
 
+<<<<<<< HEAD
     labels = kmeans.labels_
 
     line1 = []
@@ -56,3 +57,24 @@ def read_plate(yolo_license_plate, im):
     # ==== 7. ghép kết quả dòng trên + dòng dưới ====
     plate = "".join([c[2] for c in line1]) + "".join([c[2] for c in line2])
     return plate
+=======
+    # 1 line plates and 2 line plates
+    line_1 = []
+    line_2 = []
+    license_plate = ""
+    if LP_type == "2":
+        for c in center_list:
+            if int(c[1]) > y_mean:
+                line_2.append(c)
+            else:
+                line_1.append(c)
+        for l1 in sorted(line_1, key = lambda x: x[0]):
+            license_plate += str(l1[2])
+        license_plate += "-"
+        for l2 in sorted(line_2, key = lambda x: x[0]):
+            license_plate += str(l2[2])
+    else:
+        for l in sorted(center_list, key = lambda x: x[0]):
+            license_plate += str(l[2])
+    return license_plate
+>>>>>>> 225b004ca5c5a0e829bbf27d4187b67e8ab43829
