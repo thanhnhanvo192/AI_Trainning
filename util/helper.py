@@ -1,94 +1,66 @@
-import math
-
-# --- LOGIC CŨ (Giữ lại để tham khảo, nhưng không dùng để quyết định dòng nữa) ---
-def linear_equation(x1, y1, x2, y2):
-    if x2 - x1 == 0: return 0, 0
-    b = y1 - (y2 - y1) * x1 / (x2 - x1)
-    a = (y1 - b) / x1
-    return a, b
-
-def check_point_linear(x, y, x1, y1, x2, y2):
-    a, b = linear_equation(x1, y1, x2, y2)
-    y_pred = a*x+b
-    return(math.isclose(y_pred, y, abs_tol = 3))
-
-# --- HÀM CHÍNH ĐÃ ĐƯỢC TỐI ƯU ---
-def read_plate(yolo_license_plate, im):
-    # 1. DỰ ĐOÁN BẰNG YOLOv8 (Thay cho .pandas() của YOLOv5)
-    try:
-        # verbose=False để tắt log, conf=0.4 để lọc nhiễu
-        results = yolo_license_plate.predict(im, conf=0.4, verbose=False)
-    except:
-        return ""
-
-    # 2. CHUYỂN ĐỔI KẾT QUẢ SANG LIST
-    # Cấu trúc center_list: [center_x, center_y, label_name, height]
-    center_list = []
-    y_sum = 0
+# FILE: helper.py
+def read_plate(chars):
+    """
+    Hàm sắp xếp ký tự biển số xe (Hỗ trợ 1 dòng và 2 dòng).
     
-    for r in results:
-        for box in r.boxes:
-            x1, y1, x2, y2 = map(float, box.xyxy[0])
-            cls = int(box.cls[0])
-            
-            # Lấy tên label
-            if hasattr(yolo_license_plate, 'names'):
-                label = yolo_license_plate.names[cls]
-            else:
-                label = str(cls)
-            
-            x_c = (x1 + x2) / 2
-            y_c = (y1 + y2) / 2
-            h = y2 - y1
-            
-            y_sum += y_c
-            center_list.append([x_c, y_c, label, h])
-
-    # Kiểm tra số lượng ký tự
-    if len(center_list) == 0: return ""
-
-    # 3. THUẬT TOÁN XÁC ĐỊNH 1 DÒNG HAY 2 DÒNG (MỚI)
-    # Sắp xếp theo Y để tìm chữ cao nhất và thấp nhất
-    center_list.sort(key=lambda x: x[1])
-    min_y = center_list[0][1]
-    max_y = center_list[-1][1]
+    Input: 
+        chars: List các dictionary [{'cx': float, 'cy': float, 'label': str, 'h': float}, ...]
     
-    # Tính chiều cao trung bình của ký tự
-    avg_height = sum([c[3] for c in center_list]) / len(center_list)
+    Output: 
+        String biển số đã sắp xếp hoàn chỉnh.
+    """
+    # Nếu ít hơn 3 ký tự thì coi như chưa đọc được hoặc nhiễu
+    if len(chars) < 3: return ""
+
+    # --- BƯỚC 1: SẮP XẾP THEO CHIỀU DỌC (Y) ---
+    # Để tìm xem ký tự nào nằm trên, ký tự nào nằm dưới
+    chars.sort(key=lambda k: k['cy'])
     
-    # LOGIC QUAN TRỌNG: Nếu khoảng cách Y lớn hơn 60% chiều cao chữ -> 2 DÒNG
-    if (max_y - min_y) > (avg_height * 0.6):
-        LP_type = "2"
+    # --- BƯỚC 2: THUẬT TOÁN TÁCH DÒNG (MAX GAP) ---
+    # Tìm khoảng cách lớn nhất giữa tâm của 2 ký tự liền kề theo chiều dọc
+    max_gap = 0
+    split_index = 0
+    
+    for i in range(1, len(chars)):
+        # Khoảng cách từ ký tự hiện tại (i) so với ký tự ngay trên nó (i-1)
+        gap = chars[i]['cy'] - chars[i-1]['cy']
+        
+        if gap > max_gap:
+            max_gap = gap
+            split_index = i
+
+    # --- BƯỚC 3: QUYẾT ĐỊNH 1 HAY 2 DÒNG ---
+    # Tính chiều cao trung bình của các ký tự để làm thước đo
+    avg_height = sum([c['h'] for c in chars]) / len(chars)
+    
+    # LOGIC QUAN TRỌNG:
+    # Nếu khoảng trống lớn nhất (max_gap) lớn hơn 60% chiều cao trung bình của một con chữ
+    # -> Kết luận: ĐÂY LÀ BIỂN 2 DÒNG.
+    is_two_lines = max_gap > (avg_height * 0.6)
+
+    final_string = ""
+    
+    if is_two_lines:
+        # --- XỬ LÝ BIỂN 2 DÒNG ---
+        # Cắt danh sách tại vị trí khoảng trống lớn nhất
+        line_1 = chars[:split_index] # Nhóm trên
+        line_2 = chars[split_index:] # Nhóm dưới
+        
+        # Trong mỗi dòng, sắp xếp từ TRÁI sang PHẢI (theo cx)
+        line_1.sort(key=lambda k: k['cx'])
+        line_2.sort(key=lambda k: k['cx'])
+        
+        # Ghép chuỗi
+        str1 = "".join([str(c['label']) for c in line_1])
+        str2 = "".join([str(c['label']) for c in line_2])
+        
+        # Kết quả: Dòng trên + Dòng dưới (VD: 59F1 + 12345)
+        final_string = str1 + str2 
+        
     else:
-        LP_type = "1"
+        # --- XỬ LÝ BIỂN 1 DÒNG ---
+        # Chỉ cần sắp xếp từ Trái sang Phải
+        chars.sort(key=lambda k: k['cx'])
+        final_string = "".join([str(c['label']) for c in chars])
 
-    # 4. SẮP XẾP VÀ GHÉP CHUỖI
-    license_plate = ""
-    
-    if LP_type == "2":
-        # Tính đường trung bình chia đôi dòng
-        y_mean = (min_y + max_y) / 2
-        
-        line_1 = []
-        line_2 = []
-        for c in center_list:
-            if c[1] > y_mean:
-                line_2.append(c) # Dòng dưới
-            else:
-                line_1.append(c) # Dòng trên
-        
-        # Sắp xếp từng dòng từ Trái qua Phải (theo x_c)
-        for l1 in sorted(line_1, key = lambda x: x[0]):
-            license_plate += str(l1[2])
-        
-        # license_plate += "-" # Bỏ comment nếu muốn dấu gạch
-        
-        for l2 in sorted(line_2, key = lambda x: x[0]):
-            license_plate += str(l2[2])
-            
-    else:
-        # 1 dòng: Sắp xếp từ Trái qua Phải
-        for l in sorted(center_list, key = lambda x: x[0]):
-            license_plate += str(l[2])
-
-    return license_plate
+    return final_string
