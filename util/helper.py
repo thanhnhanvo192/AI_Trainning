@@ -1,80 +1,66 @@
-from sklearn.cluster import KMeans
-import numpy as np
+# FILE: helper.py
+def read_plate(chars):
+    """
+    Hàm sắp xếp ký tự biển số xe (Hỗ trợ 1 dòng và 2 dòng).
+    
+    Input: 
+        chars: List các dictionary [{'cx': float, 'cy': float, 'label': str, 'h': float}, ...]
+    
+    Output: 
+        String biển số đã sắp xếp hoàn chỉnh.
+    """
+    # Nếu ít hơn 3 ký tự thì coi như chưa đọc được hoặc nhiễu
+    if len(chars) < 3: return ""
 
-def read_plate(yolo_license_plate, im):
-    # ==== 1. YOLO OCR ====
-    results = yolo_license_plate.predict(im, conf=0.4, verbose=False)
+    # --- BƯỚC 1: SẮP XẾP THEO CHIỀU DỌC (Y) ---
+    # Để tìm xem ký tự nào nằm trên, ký tự nào nằm dưới
+    chars.sort(key=lambda k: k['cy'])
+    
+    # --- BƯỚC 2: THUẬT TOÁN TÁCH DÒNG (MAX GAP) ---
+    # Tìm khoảng cách lớn nhất giữa tâm của 2 ký tự liền kề theo chiều dọc
+    max_gap = 0
+    split_index = 0
+    
+    for i in range(1, len(chars)):
+        # Khoảng cách từ ký tự hiện tại (i) so với ký tự ngay trên nó (i-1)
+        gap = chars[i]['cy'] - chars[i-1]['cy']
+        
+        if gap > max_gap:
+            max_gap = gap
+            split_index = i
 
-    bb_list = []
-    for r in results:
-        for box in r.boxes:
-            x1, y1, x2, y2 = map(float, box.xyxy[0])
-            conf = float(box.conf[0])
-            cls = int(box.cls[0])
-            label = yolo_license_plate.names[cls] if hasattr(yolo_license_plate, 'names') else str(cls)
-            bb_list.append([x1, y1, x2, y2, conf, cls, label])
+    # --- BƯỚC 3: QUYẾT ĐỊNH 1 HAY 2 DÒNG ---
+    # Tính chiều cao trung bình của các ký tự để làm thước đo
+    avg_height = sum([c['h'] for c in chars]) / len(chars)
+    
+    # LOGIC QUAN TRỌNG:
+    # Nếu khoảng trống lớn nhất (max_gap) lớn hơn 60% chiều cao trung bình của một con chữ
+    # -> Kết luận: ĐÂY LÀ BIỂN 2 DÒNG.
+    is_two_lines = max_gap > (avg_height * 0.6)
 
-    if len(bb_list) == 0:
-        return "unknown"
-
-    # ==== 2. Tạo center_list ====
-    center_list = []
-    for bb in bb_list:
-        x_center = (bb[0] + bb[2]) / 2
-        y_center = (bb[1] + bb[3]) / 2
-        center_list.append([x_center, y_center, bb[-1]])
-
-    # ==== 3. Nếu chỉ 1 dòng ====
-    ys = [c[1] for c in center_list]
-    if max(ys) - min(ys) < 20:  # biển 1 dòng
-        line = sorted(center_list, key=lambda x: x[0])
-        return "".join([c[2] for c in line])
-
-    # ==== 4. Biển 2 dòng → phân cụm K-means theo trục Y ====
-    ys_np = np.array([[c[1]] for c in center_list])
-    kmeans = KMeans(n_clusters=2, n_init=10).fit(ys_np)
-
-<<<<<<< HEAD
-    labels = kmeans.labels_
-
-    line1 = []
-    line2 = []
-
-    for i, c in enumerate(center_list):
-        if labels[i] == 0:
-            line1.append(c)
-        else:
-            line2.append(c)
-
-    # ==== 5. sắp theo X trong từng dòng ====
-    line1 = sorted(line1, key=lambda x: x[0])
-    line2 = sorted(line2, key=lambda x: x[0])
-
-    # ==== 6. xác định dòng nào là dòng trên ====
-    if np.mean([c[1] for c in line1]) > np.mean([c[1] for c in line2]):
-        line1, line2 = line2, line1
-
-    # ==== 7. ghép kết quả dòng trên + dòng dưới ====
-    plate = "".join([c[2] for c in line1]) + "".join([c[2] for c in line2])
-    return plate
-=======
-    # 1 line plates and 2 line plates
-    line_1 = []
-    line_2 = []
-    license_plate = ""
-    if LP_type == "2":
-        for c in center_list:
-            if int(c[1]) > y_mean:
-                line_2.append(c)
-            else:
-                line_1.append(c)
-        for l1 in sorted(line_1, key = lambda x: x[0]):
-            license_plate += str(l1[2])
-        license_plate += "-"
-        for l2 in sorted(line_2, key = lambda x: x[0]):
-            license_plate += str(l2[2])
+    final_string = ""
+    
+    if is_two_lines:
+        # --- XỬ LÝ BIỂN 2 DÒNG ---
+        # Cắt danh sách tại vị trí khoảng trống lớn nhất
+        line_1 = chars[:split_index] # Nhóm trên
+        line_2 = chars[split_index:] # Nhóm dưới
+        
+        # Trong mỗi dòng, sắp xếp từ TRÁI sang PHẢI (theo cx)
+        line_1.sort(key=lambda k: k['cx'])
+        line_2.sort(key=lambda k: k['cx'])
+        
+        # Ghép chuỗi
+        str1 = "".join([str(c['label']) for c in line_1])
+        str2 = "".join([str(c['label']) for c in line_2])
+        
+        # Kết quả: Dòng trên + Dòng dưới (VD: 59F1 + 12345)
+        final_string = str1 + str2 
+        
     else:
-        for l in sorted(center_list, key = lambda x: x[0]):
-            license_plate += str(l[2])
-    return license_plate
->>>>>>> 225b004ca5c5a0e829bbf27d4187b67e8ab43829
+        # --- XỬ LÝ BIỂN 1 DÒNG ---
+        # Chỉ cần sắp xếp từ Trái sang Phải
+        chars.sort(key=lambda k: k['cx'])
+        final_string = "".join([str(c['label']) for c in chars])
+
+    return final_string
